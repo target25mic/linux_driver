@@ -1,0 +1,11 @@
+# Kernel module build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+Module.symvers
+modules.order
+
+# Compiled user-space test executable
+tests/test_mydevice
