@@ -32,6 +32,11 @@ int main(void)
     }
 
     printf("Wrote %zd bytes: %s\n", bytes_written, write_buffer);
+    if (lseek(fd, 0, SEEK_SET) < 0) {
+    perror("Failed to reset file offset");
+    close(fd);
+    return EXIT_FAILURE;
+}
 
     bytes_read = read(fd, read_buffer, sizeof(read_buffer) - 1);
 

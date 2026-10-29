@@ -5,10 +5,15 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
+#include <linux/ioctl.h>
 
 #define DEVICE_NAME "mydevice"
 #define CLASS_NAME  "mydevice_class"
 #define BUFFER_SIZE 1024
+
+#define MYDEVICE_IOC_MAGIC 'M'
+#define MYDEVICE_GET_BUFFER_SIZE \
+    _IOR(MYDEVICE_IOC_MAGIC, 1, int)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Student");
@@ -41,6 +46,8 @@ static ssize_t mydevice_read(struct file *file,
                              size_t count, loff_t *offset)
 {
     size_t bytes_to_copy;
+    if (*offset < 0)
+        return -EINVAL;
 
     if (mutex_lock_interruptible(&buffer_mutex))
         return -ERESTARTSYS;
@@ -69,28 +76,58 @@ static ssize_t mydevice_write(struct file *file,
                               const char __user *user_buffer,
                               size_t count, loff_t *offset)
 {
-    size_t bytes_to_copy = min(count, (size_t)BUFFER_SIZE);
+    size_t bytes_to_copy;
+
+    if (*offset < 0 || *offset >= BUFFER_SIZE)
+        return -EINVAL;
 
     if (mutex_lock_interruptible(&buffer_mutex))
         return -ERESTARTSYS;
 
-    if (copy_from_user(device_buffer, user_buffer, bytes_to_copy)) {
+    bytes_to_copy = min(count, (size_t)(BUFFER_SIZE - *offset));
+
+    if (copy_from_user(device_buffer + *offset,
+                       user_buffer, bytes_to_copy)) {
         mutex_unlock(&buffer_mutex);
         return -EFAULT;
     }
 
-    data_size = bytes_to_copy;
+    *offset += bytes_to_copy;
+
+    if (*offset > data_size)
+        data_size = *offset;
+
     mutex_unlock(&buffer_mutex);
 
     pr_info("mydevice: wrote %zu bytes\n", bytes_to_copy);
     return bytes_to_copy;
+    
 }
+static long mydevice_ioctl(struct file *file,
+                           unsigned int cmd,
+                           unsigned long arg)
+{
+    int buffer_size = BUFFER_SIZE;
 
+    switch (cmd) {
+    case MYDEVICE_GET_BUFFER_SIZE:
+        if (copy_to_user((int __user *)arg,
+                         &buffer_size,
+                         sizeof(buffer_size))) {
+            return -EFAULT;
+        }
+        return 0;
+
+    default:
+        return -EINVAL;
+    }
+}
 static const struct file_operations mydevice_fops = {
     .owner = THIS_MODULE,
     .open = mydevice_open,
     .read = mydevice_read,
     .write = mydevice_write,
+    .unlocked_ioctl = mydevice_ioctl,
     .release = mydevice_release,
     .llseek = default_llseek,
 };
